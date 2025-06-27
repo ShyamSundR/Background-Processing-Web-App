@@ -1,0 +1,28 @@
+# Temporal dynamic configuration for development
+# Configuration options adapted from Temporal documentation
+# Reference: https://docs.temporal.io/docs/server/configuration
+
+# Enable search attributes for better workflow visibility
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
+
+# Disable sampling for development debugging
+system.enableLoggerSampling:
+  - value: false
+    constraints: {}
+
+# Increase read QPS for development
+system.standardVisibilityPersistenceMaxReadQPS:
+  - value: 1000
+    constraints: {}
+
+# Enable advanced visibility features
+system.advancedVisibilityWritingMode:
+  - value: "on"
+    constraints: {}
+
+# Development-friendly retention settings
+system.historyMaxPageSize:
+  - value: 5000
+    constraints: {}
