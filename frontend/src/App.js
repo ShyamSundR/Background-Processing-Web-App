@@ -19,6 +19,14 @@ function App() {
   const [summarizeResult, setSummarizeResult] = useState(null);
   const [summarizeLoading, setSummarizeLoading] = useState(false);
   
+  // Add to state management (after existing state)
+  const [screenshotUrl, setScreenshotUrl] = useState('');
+  const [screenshotTask, setScreenshotTask] = useState(null);
+  const [screenshotResult, setScreenshotResult] = useState(null);
+  const [screenshotLoading, setScreenshotLoading] = useState(false);
+
+  const [showScreenshotModal, setShowScreenshotModal] = useState(false);
+  
   // Error handling
   const [error, setError] = useState('');
   
@@ -63,6 +71,61 @@ function App() {
       if (interval) clearInterval(interval);
     };
   }, [reverseTask, reverseResult]);
+
+  useEffect(() => {
+    let interval;
+    if (screenshotTask && !screenshotResult) {
+      interval = setInterval(async () => {
+        try {
+          const response = await axios.get(`${API_BASE}/screenshot/${screenshotTask.task_id}`);
+          const data = response.data;
+          
+          if (data.status === 'completed' || data.status === 'failed') {
+            setScreenshotResult(data);
+            setScreenshotTask(null);
+            setScreenshotLoading(false);
+            
+            if (data.status === 'failed' && data.error) {
+              setError(data.error);
+            }
+            clearInterval(interval);
+          }
+        } catch (err) {
+          console.error('Error polling screenshot status:', err);
+          setError('Failed to get screenshot status');
+          setScreenshotLoading(false);
+          clearInterval(interval);
+        }
+      }, 2000); // Longer interval for screenshots
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [screenshotTask, screenshotResult]);
+  
+  // Add screenshot submit handler
+  const handleScreenshotSubmit = async (e) => {
+    e.preventDefault();
+    if (!screenshotUrl.trim()) {
+      setError('Please enter a URL');
+      return;
+    }
+  
+    setScreenshotLoading(true);
+    setError('');
+    setScreenshotResult(null);
+    
+    try {
+      const response = await axios.post(`${API_BASE}/screenshot`, {
+        url: screenshotUrl
+      });
+      setScreenshotTask(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to start screenshot capture');
+      setScreenshotLoading(false);
+    }
+  };
 
   const checkServiceHealth = useCallback(async () => {
     try {
@@ -131,6 +194,10 @@ function App() {
     setSummarizeInput('');
     setSummarizeResult(null);
     setSummarizeLoading(false);
+    setScreenshotUrl('');
+    setScreenshotTask(null);
+    setScreenshotResult(null);
+    setScreenshotLoading(false);
     setError('');
   };
 
@@ -197,6 +264,12 @@ function App() {
                 <span className="status-dot"></span>
                 AI: {getDisplayStatus(serviceStatus.huggingface?.status)}
               </div>
+              {serviceStatus?.browserbase && (
+                <div className={`status-indicator ${getStatusClass(serviceStatus.browserbase.status)}`}>
+                  <span className="status-dot"></span>
+                  Screenshots: {getDisplayStatus(serviceStatus.browserbase.status)}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -376,7 +449,173 @@ function App() {
               )}
             </div>
           </div>
+          {/* Screenshot Capture Demo */}
+          <div className="demo-card">
+            <div className="card-header">
+              <h3>📸 Screenshot Capture</h3>
+              <p>Browser automation with Browserbase + Playwright</p>
+            </div>
+            
+            <form onSubmit={handleScreenshotSubmit} className="demo-form">
+              <div className="input-group">
+                <label>Enter website URL:</label>
+                <input
+                  type="text"
+                  value={screenshotUrl}
+                  onChange={(e) => setScreenshotUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  disabled={screenshotLoading}
+                  className="demo-input"
+                />
+              </div>
+              <button 
+                type="submit" 
+                disabled={screenshotLoading || !screenshotUrl.trim()}
+                className="demo-btn primary"
+              >
+                {screenshotLoading ? (
+                  <>
+                    <span className="spinner"></span>
+                    Capturing...
+                  </>
+                ) : (
+                  'Get Screenshot'
+                )}
+              </button>
+            </form>
 
+            {/* Task Progress */}
+            {screenshotTask && !screenshotResult && (
+              <div className="task-progress">
+                <div className="progress-header">
+                  <span>Capturing Screenshot</span>
+                  <span className="task-id">ID: {screenshotTask.task_id.slice(0, 8)}...</span>
+                </div>
+                <div className="progress-bar">
+                  <div className="progress-fill"></div>
+                </div>
+              </div>
+            )}
+
+            {/* Results */}
+            {screenshotResult && (
+              <div className="result-panel">
+                <div className="result-header">
+                  <span className={`result-status ${screenshotResult.status}`}>
+                    {screenshotResult.status === 'completed' ? '📸 Captured' : 'Failed'}
+                  </span>
+                  {screenshotResult.processing_time_seconds && (
+                    <span className="processing-time">
+                      {screenshotResult.processing_time_seconds}s
+                    </span>
+                  )}
+                </div>
+                
+                <div className="result-content">
+                  <div className="result-item">
+                    <label>Website:</label>
+                    <div className="result-text original">{screenshotResult.url}</div>
+                  </div>
+                  
+                  {screenshotResult.page_title && (
+                    <div className="result-item">
+                      <label>Page Title:</label>
+                      <div className="result-text">{screenshotResult.page_title}</div>
+                    </div>
+                  )}
+                  
+                  {screenshotResult.screenshot_data && (
+                    <div className="result-item">
+                      <label>Screenshot:</label>
+                      <div className="screenshot-container">
+                        <img 
+                          src={`data:image/png;base64,${screenshotResult.screenshot_data}`}
+                          alt="Website screenshot"
+                          className="screenshot-image"
+                          onClick={() => setShowScreenshotModal(true)}
+                          style={{ cursor: 'pointer' }}
+                          title="Click to view full size"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add this modal at the end of your component, before the closing </div> */}
+                  {showScreenshotModal && (
+                    <div 
+                      className="screenshot-modal-overlay" 
+                      onClick={() => setShowScreenshotModal(false)}
+                      style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+                        <img 
+                          src={`data:image/png;base64,${screenshotResult.screenshot_data}`}
+                          alt="Full size screenshot"
+                          style={{
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            objectFit: 'contain',
+                            borderRadius: '8px'
+                          }}
+                        />
+                        <button
+                          onClick={() => setShowScreenshotModal(false)}
+                          style={{
+                            position: 'absolute',
+                            top: '10px',
+                            right: '10px',
+                            background: 'rgba(0, 0, 0, 0.7)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '30px',
+                            height: '30px',
+                            cursor: 'pointer',
+                            fontSize: '18px'
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {screenshotResult.replay_url && (
+                    <div className="result-item">
+                      <label>Session Replay:</label>
+                      <a 
+                        href={screenshotResult.replay_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="replay-link"
+                      >
+                        View Browser Session →
+                      </a>
+                    </div>
+                  )}
+                  
+                  {screenshotResult.error && (
+                    <div className="result-item error">
+                      <label>Error:</label>
+                      <div className="result-text">{screenshotResult.error}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           {/* Demo Controls */}
           <div className="demo-controls">
             <button onClick={handleClearAll} className="demo-btn secondary">

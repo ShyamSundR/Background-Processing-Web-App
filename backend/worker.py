@@ -11,7 +11,13 @@ from temporalio.worker import Worker
 from dotenv import load_dotenv
 
 # Import workflows and activities
-from workflows import ReverseWorkflow, reverse_string_activity, log_processing_activity
+from workflows import (
+    ReverseWorkflow, 
+    ScreenshotWorkflow,
+    reverse_string_activity, 
+    log_processing_activity, 
+    capture_screenshot_activity
+)
 
 # Load environment variables
 load_dotenv()
@@ -47,12 +53,12 @@ class WorkerManager:
                 connection_string,
                 namespace=temporal_namespace
             )
-            print(" Successfully connected to Temporal server")
+            print("✅ Successfully connected to Temporal server")
             return True
             
         except Exception as e:
-            print(f" Failed to connect to Temporal server: {e}")
-            print(" Make sure Temporal server is running (docker-compose up temporal)")
+            print(f"❌ Failed to connect to Temporal server: {e}")
+            print("   Make sure Temporal server is running (docker-compose up temporal)")
             return False
     
     async def setup_worker(self):
@@ -67,21 +73,21 @@ class WorkerManager:
         self.worker = Worker(
             self.client,
             task_queue=task_queue,
-            workflows=[ReverseWorkflow],
-            activities=[reverse_string_activity, log_processing_activity],
+            workflows=[ReverseWorkflow, ScreenshotWorkflow],
+            activities=[reverse_string_activity, log_processing_activity, capture_screenshot_activity],
             max_concurrent_activities=10
         )
         
         print("🔧 Worker configured with:")
         print(f"   - Task Queue: {task_queue}")
-        print("   - Workflows: ReverseWorkflow")
-        print("   - Activities: reverse_string_activity, log_processing_activity")
+        print("   - Workflows: ReverseWorkflow, ScreenshotWorkflow")
+        print("   - Activities: reverse_string_activity, log_processing_activity, capture_screenshot_activity")
         print("   - Max Concurrent Activities: 10")
     
     def setup_signal_handlers(self):
         """Setup graceful shutdown handlers for SIGINT and SIGTERM"""
         def signal_handler(signum, frame):
-            print(f"\n Received signal {signum}, initiating graceful shutdown...")
+            print(f"\n🛑 Received signal {signum}, initiating graceful shutdown...")
             self.shutdown_event.set()
         
         # Handle Ctrl+C and docker stop
@@ -90,9 +96,9 @@ class WorkerManager:
     
     async def run(self):
         """Main worker execution loop with graceful shutdown"""
-        print(" Starting Temporal worker...")
-        print(" Press Ctrl+C to stop gracefully")
-        print(" Worker is ready to process workflows.")
+        print("✅ Starting Temporal worker...")
+        print("🎯 Press Ctrl+C to stop gracefully")
+        print("🚀 Worker is ready to process workflows.")
         print("-" * 50)
         
         try:
@@ -101,7 +107,7 @@ class WorkerManager:
         except asyncio.CancelledError:
             print("Worker stopped gracefully")
         except Exception as e:
-            print(f" Worker error: {e}")
+            print(f"❌ Worker error: {e}")
             raise
     
     async def start(self):
@@ -155,18 +161,18 @@ async def main():
     try:
         await worker_manager.start()
     except KeyboardInterrupt:
-        print("\n Worker interrupted by user")
+        print("\n✋ Worker interrupted by user")
     except Exception as e:
-        print(f"Fatal worker error: {e}")
+        print(f"❌ Fatal worker error: {e}")
         sys.exit(1)
     
-    print("Worker shutdown complete")
+    print("👋 Worker shutdown complete")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n Goodbye!")
+        print("\n👋 Goodbye!")
     except Exception as e:
-        print(f"Failed to start worker: {e}")
+        print(f"❌ Failed to start worker: {e}")
         sys.exit(1)

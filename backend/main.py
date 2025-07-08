@@ -10,7 +10,7 @@ from typing import Optional
 import httpx
 
 # Import workflows
-from workflows import ReverseWorkflow
+from workflows import ReverseWorkflow, ScreenshotWorkflow
 
 # Load environment variables
 load_dotenv()
@@ -35,8 +35,21 @@ class SummarizeResponse(BaseModel):
     summary_text: str
     style: str
 
+class ScreenshotRequest(BaseModel):
+    url: str
+
+class ScreenshotResponse(BaseModel):
+    task_id: str
+    status: str
+    url: str
+    page_title: Optional[str] = None
+    screenshot_data: Optional[str] = None
+    replay_url: Optional[str] = None
+    processing_time_seconds: Optional[float] = None
+    error: Optional[str] = None
+
 # Initialize FastAPI app
-app = FastAPI(title="Mocksi API - Fixed Version")
+app = FastAPI(title="Mocksi API - Complete Version")
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,28 +69,38 @@ async def startup_event():
     """Initialize services on startup"""
     global temporal_client, hf_token
     
-    print("🚀 STARTING MOCKSI BACKEND - FIXED VERSION")
+    print("🚀 STARTING MOCKSI BACKEND - COMPLETE VERSION")
     
     # Connect to Temporal server
     try:
-        temporal_host = os.getenv("TEMPORAL_HOST", "localhost")
+        temporal_host = os.getenv("TEMPORAL_HOST", "127.0.0.1")
         temporal_port = os.getenv("TEMPORAL_PORT", "7233")
         temporal_client = await Client.connect(f"{temporal_host}:{temporal_port}")
-        print(f"Connected to Temporal at {temporal_host}:{temporal_port}")
+        print(f"✅ Connected to Temporal at {temporal_host}:{temporal_port}")
     except Exception as e:
-        print(f"Failed to connect to Temporal: {e}")
+        print(f"❌ Failed to connect to Temporal: {e}")
         
     # Get Hugging Face token
     hf_token = os.getenv("HUGGINGFACE_API_TOKEN")
     if hf_token:
-        print(f"Hugging Face API token configured: {hf_token[:10]}...")
+        print(f"✅ Hugging Face API token configured: {hf_token[:10]}...")
         try:
             await test_hf_api()
-            print(" Hugging Face API connection verified!")
+            print("✅ Hugging Face API connection verified!")
         except Exception as e:
-            print(f" Hugging Face API test failed: {e}")
+            print(f"⚠️ Hugging Face API test failed: {e}")
     else:
-        print(" HUGGINGFACE_API_TOKEN not found in environment!")
+        print("⚠️ HUGGINGFACE_API_TOKEN not found in environment!")
+
+    # Check Browserbase credentials
+    browserbase_key = os.getenv("BROWSERBASE_API_KEY")
+    browserbase_project = os.getenv("BROWSERBASE_PROJECT_ID")
+    if browserbase_key and browserbase_project:
+        print(f"✅ Browserbase credentials configured")
+        print(f"   API Key: {browserbase_key[:10]}...")
+        print(f"   Project ID: {browserbase_project}")
+    else:
+        print("⚠️ Browserbase credentials not found - screenshot feature will be limited")
 
 async def test_hf_api():
     """Test Hugging Face API connection"""
@@ -93,13 +116,12 @@ async def test_hf_api():
         return response.status_code == 200
 
 async def test_temporal_connection():
-    """Simple Temporal health check that actually works"""
+    """Simple Temporal health check"""
     try:
         if not temporal_client:
             return False
         
-        # Just test if we can get workflow service info
-        # This is less invasive than list_workflows
+        # Test if we can get workflow service info
         service_info = temporal_client.workflow_service
         return service_info is not None
     except Exception as e:
@@ -107,7 +129,7 @@ async def test_temporal_connection():
         return False
 
 async def call_huggingface_api(text: str, style: str) -> str:
-    """Call Hugging Face API for summarization - FIXED VERSION"""
+    """Call Hugging Face API for summarization"""
     print(f"🤖 Calling Hugging Face API for {style} summary...")
     print(f"📝 Input text (first 100 chars): {text[:100]}...")
     
@@ -145,41 +167,41 @@ async def call_huggingface_api(text: str, style: str) -> str:
     
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:  
-            print(f" Sending request to HF API with max_length={max_length}, min_length={min_length}")
+            print(f"📤 Sending request to HF API with max_length={max_length}, min_length={min_length}")
             response = await client.post(api_url, headers=headers, json=payload)
-            print(f"HF API response status: {response.status_code}")
+            print(f"📥 HF API response status: {response.status_code}")
             
             if response.status_code == 503:
-                print(" Model is loading on HF servers, waiting 20 seconds...")
+                print("⏳ Model is loading on HF servers, waiting 20 seconds...")
                 await asyncio.sleep(20)
                 response = await client.post(api_url, headers=headers, json=payload)
-                print(f" HF API retry response status: {response.status_code}")
+                print(f"🔄 HF API retry response status: {response.status_code}")
             
             if response.status_code == 429:
                 print("⏳ Rate limited, waiting 30 seconds...")
                 await asyncio.sleep(30)
                 response = await client.post(api_url, headers=headers, json=payload)
-                print(f"HF API rate limit retry response status: {response.status_code}")
+                print(f"🔄 HF API rate limit retry response status: {response.status_code}")
             
             response.raise_for_status()
             result = response.json()
-            print(f"HF API raw result: {result}")
+            print(f"📋 HF API raw result: {result}")
             
             if isinstance(result, list) and len(result) > 0:
                 summary = result[0].get("summary_text", "")
                 if summary and summary.strip() and summary != text:
-                    print(f" Generated summary: {summary}")
+                    print(f"✅ Generated summary: {summary}")
                     return summary
                 else:
-                    print(f"Summary same as input or empty: {summary}")
+                    print(f"⚠️ Summary same as input or empty: {summary}")
             
             # If we get here, summarization didn't work properly
-            print("No valid summary from HF API, creating manual summary")
+            print("⚠️ No valid summary from HF API, creating manual summary")
             return create_manual_summary(text, style)
             
     except Exception as e:
-        print(f" HF API error: {e}")
-        print("Falling back to manual summarization")
+        print(f"❌ HF API error: {e}")
+        print("🔄 Falling back to manual summarization")
         return create_manual_summary(text, style)
 
 def create_manual_summary(text: str, style: str) -> str:
@@ -208,9 +230,10 @@ def create_manual_summary(text: str, style: str) -> str:
 @app.get("/")
 async def root():
     return {
-        "message": "Mocksi API - Fixed Temporal & Summarization",
+        "message": "Mocksi API - Complete Version with Screenshots",
         "hf_token_configured": bool(hf_token),
-        "temporal_connected": bool(temporal_client)
+        "temporal_connected": bool(temporal_client),
+        "browserbase_configured": bool(os.getenv("BROWSERBASE_API_KEY") and os.getenv("BROWSERBASE_PROJECT_ID"))
     }
 
 @app.post("/reverse", response_model=ReverseResponse)
@@ -246,7 +269,7 @@ async def reverse_string(request: ReverseRequest):
         )
         
     except Exception as e:
-        print(f"Error starting reverse workflow: {e}")
+        print(f"❌ Error starting reverse workflow: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
 
 @app.get("/reverse/{task_id}", response_model=ReverseResponse)
@@ -273,12 +296,83 @@ async def get_reverse_status(task_id: str):
             )
             
     except Exception as e:
-        print(f"Error getting task status: {e}")
+        print(f"❌ Error getting task status: {e}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+@app.post("/screenshot", response_model=ScreenshotResponse)
+async def capture_screenshot(request: ScreenshotRequest):
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    if not request.url.strip():
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+    
+    # Check Browserbase credentials
+    if not os.getenv("BROWSERBASE_API_KEY") or not os.getenv("BROWSERBASE_PROJECT_ID"):
+        raise HTTPException(status_code=503, detail="Browserbase not configured")
+    
+    task_id = str(uuid.uuid4())
+    
+    try:
+        handle = await temporal_client.start_workflow(
+            ScreenshotWorkflow.run,
+            request.url,
+            id=task_id,
+            task_queue="string-processing-queue",
+        )
+        
+        task_results[task_id] = {
+            "task_id": task_id,
+            "status": "running",
+            "url": request.url,
+            "screenshot_data": None,
+            "error": None
+        }
+        
+        return ScreenshotResponse(
+            task_id=task_id,
+            status="running",
+            url=request.url
+        )
+        
+    except Exception as e:
+        print(f"❌ Error starting screenshot workflow: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
+
+@app.get("/screenshot/{task_id}", response_model=ScreenshotResponse)
+async def get_screenshot_status(task_id: str):
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(task_id)
+        
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            return ScreenshotResponse(
+                task_id=task_id,
+                status=result["status"],
+                url=result["url"],
+                page_title=result.get("page_title"),
+                screenshot_data=result.get("screenshot_data"),
+                replay_url=result.get("replay_url"),
+                processing_time_seconds=result.get("processing_time_seconds"),
+                error=result.get("error")
+            )
+        except asyncio.TimeoutError:
+            return ScreenshotResponse(
+                task_id=task_id,
+                status="running",
+                url=task_results.get(task_id, {}).get("url", "")
+            )
+            
+    except Exception as e:
+        print(f"❌ Error getting screenshot status: {e}")
         raise HTTPException(status_code=404, detail="Task not found")
 
 @app.post("/summarize", response_model=SummarizeResponse)
 async def summarize_text(request: SummarizeRequest):
-    print(f"Received summarize request: {request.text[:100]}...")
+    print(f"📝 Received summarize request: {request.text[:100]}...")
     
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
@@ -294,18 +388,18 @@ async def summarize_text(request: SummarizeRequest):
         )
         
     except Exception as e:
-        print(f" Complete summarization failure: {e}")
+        print(f"❌ Complete summarization failure: {e}")
         raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
 
 @app.get("/health")
 async def health_check():
-    """Fixed health check"""
+    """Complete health check for all services"""
     
-    # Test Temporal connection with simpler method
+    # Test Temporal connection
     temporal_status = "disconnected"
     if temporal_client:
         temporal_healthy = await test_temporal_connection()
-        temporal_status = "connected" if temporal_healthy else "connected_but_limited"
+        temporal_status = "connected" if temporal_healthy else "error"
     
     # Test HF API
     hf_status = "not configured"
@@ -315,6 +409,11 @@ async def health_check():
             hf_status = "connected" if hf_healthy else "configured but unreachable"
         except:
             hf_status = "configured but error"
+    
+    # Test Browserbase config
+    browserbase_status = "not configured"
+    if os.getenv("BROWSERBASE_API_KEY") and os.getenv("BROWSERBASE_PROJECT_ID"):
+        browserbase_status = "configured"
     
     return {
         "app": "healthy",
@@ -328,9 +427,15 @@ async def health_check():
             "model": "facebook/bart-large-cnn",
             "token_configured": bool(hf_token)
         },
+        "browserbase": {
+            "status": browserbase_status,
+            "api_key_configured": bool(os.getenv("BROWSERBASE_API_KEY")),
+            "project_id_configured": bool(os.getenv("BROWSERBASE_PROJECT_ID"))
+        },
         "features": {
             "string_reversal": "available" if temporal_client else "unavailable", 
-            "ai_summarization": "available" if hf_token else "unavailable"
+            "ai_summarization": "available" if hf_token else "unavailable",
+            "screenshot_capture": "available" if (temporal_client and os.getenv("BROWSERBASE_API_KEY")) else "unavailable"
         }
     }
 

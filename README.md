@@ -57,3 +57,9 @@ Temporal Worker ← → Temporal Server (port 7233)
     |
 PostgreSQL Database
 Plus the Hugging Face API calls for AI features.
+
+
+
+
+API_KEY = "bb_live_QjT9KXxOoxwUnQvnKhwdrC_4zTc"
+PROJECT_ID = "10a92df2-2269-40f1-9260-6b88cda2bcc0"
