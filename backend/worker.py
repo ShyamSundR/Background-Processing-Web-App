@@ -14,13 +14,20 @@ from dotenv import load_dotenv
 from workflows import (
     ReverseWorkflow, 
     ScreenshotWorkflow,
+    ContentAnalysisWorkflow,
+    TechnicalSpecificationWorkflow,  
     reverse_string_activity, 
     log_processing_activity, 
-    capture_screenshot_activity
+    capture_screenshot_activity,
+    extract_page_content_activity,
+    analyze_content_with_ai_activity,
+    generate_technical_specification_activity  
 )
 
 # Load environment variables
 load_dotenv()
+
+
 
 class WorkerManager:
     """
@@ -71,17 +78,29 @@ class WorkerManager:
         
         # Create worker with workflows and activities
         self.worker = Worker(
-            self.client,
-            task_queue=task_queue,
-            workflows=[ReverseWorkflow, ScreenshotWorkflow],
-            activities=[reverse_string_activity, log_processing_activity, capture_screenshot_activity],
-            max_concurrent_activities=10
-        )
+        self.client,
+        task_queue=task_queue,
+        workflows=[
+            ReverseWorkflow, 
+            ScreenshotWorkflow, 
+            ContentAnalysisWorkflow,
+            TechnicalSpecificationWorkflow  # ADD THIS
+        ],
+        activities=[
+            reverse_string_activity, 
+            log_processing_activity, 
+            capture_screenshot_activity,
+            extract_page_content_activity,
+            analyze_content_with_ai_activity,
+            generate_technical_specification_activity  # ADD THIS
+        ],
+        max_concurrent_activities=10
+    )
         
         print("🔧 Worker configured with:")
         print(f"   - Task Queue: {task_queue}")
-        print("   - Workflows: ReverseWorkflow, ScreenshotWorkflow")
-        print("   - Activities: reverse_string_activity, log_processing_activity, capture_screenshot_activity")
+        print("   - Workflows: ReverseWorkflow, ScreenshotWorkflow, ContentAnalysisWorkflow")
+        print("   - Activities: 5 activities including content analysis")
         print("   - Max Concurrent Activities: 10")
     
     def setup_signal_handlers(self):

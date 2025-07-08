@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements and install as root first
 COPY requirements.txt .
-RUN pip install --default-timeout=1000 --no-cache-dir -r requirements.txt
+RUN pip install --default-timeout=5000 --no-cache-dir -r requirements.txt
 
 RUN playwright install chromium
 RUN playwright install-deps

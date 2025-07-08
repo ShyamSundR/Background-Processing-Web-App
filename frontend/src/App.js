@@ -26,7 +26,16 @@ function App() {
   const [screenshotLoading, setScreenshotLoading] = useState(false);
 
   const [showScreenshotModal, setShowScreenshotModal] = useState(false);
+
+  const [analysisUrl, setAnalysisUrl] = useState('');
+  const [analysisTask, setAnalysisTask] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
   
+  const [techSpecUrl, setTechSpecUrl] = useState('');
+  const [techSpecTask, setTechSpecTask] = useState(null);
+  const [techSpecResult, setTechSpecResult] = useState(null);
+  const [techSpecLoading, setTechSpecLoading] = useState(false);
   // Error handling
   const [error, setError] = useState('');
   
@@ -97,13 +106,84 @@ function App() {
           clearInterval(interval);
         }
       }, 2000); // Longer interval for screenshots
+    }    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [screenshotTask, screenshotResult]);
+  // Add polling effect for content analysis (add after existing polling effects)
+  useEffect(() => {
+    let interval;
+    if (analysisTask && !analysisResult) {
+      interval = setInterval(async () => {
+        try {
+          const response = await axios.get(`${API_BASE}/analyze/${analysisTask.task_id}`);
+          const data = response.data;
+          
+          if (data.status === 'completed' || data.status === 'failed') {
+            setAnalysisResult(data);
+            setAnalysisTask(null);
+            setAnalysisLoading(false);
+            
+            if (data.status === 'failed' && data.error) {
+              setError(data.error);
+            }
+            clearInterval(interval);
+          }
+        } catch (err) {
+          console.error('Error polling analysis status:', err);
+          setError('Failed to get analysis status');
+          setAnalysisLoading(false);
+          clearInterval(interval);
+        }
+      }, 3000); // Longer interval for complex analysis
     }
     
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [screenshotTask, screenshotResult]);
-  
+  }, [analysisTask, analysisResult]);
+
+  // Add polling effect for tech spec (add after existing polling effects)
+  useEffect(() => {
+    let interval;
+    if (techSpecTask && !techSpecResult) {
+      interval = setInterval(async () => {
+        try {
+          const response = await axios.get(`${API_BASE}/tech-spec/${techSpecTask.task_id}`);
+          const data = response.data;
+          
+          console.log('Tech spec status:', data.status);
+          
+          if (data.status === 'completed' || data.status === 'failed') {
+            setTechSpecResult(data);
+            setTechSpecTask(null);
+            setTechSpecLoading(false);
+            
+            if (data.status === 'failed' && data.error) {
+              setError(`Technical specification failed: ${data.error}`);
+            }
+            
+            if (data.status === 'completed') {
+              console.log('✅ Technical specification completed successfully');
+            }
+            
+            clearInterval(interval);
+          }
+        } catch (err) {
+          console.error('Error polling tech spec status:', err);
+          setError('Failed to get technical specification status');
+          setTechSpecLoading(false);
+          clearInterval(interval);
+        }
+      }, 4000); // 4 second intervals for complex analysis
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [techSpecTask, techSpecResult]);
+
   // Add screenshot submit handler
   const handleScreenshotSubmit = async (e) => {
     e.preventDefault();
@@ -185,6 +265,76 @@ function App() {
     }
   };
 
+  // Add analysis submit handler
+  const handleAnalysisSubmit = async (e) => {
+    e.preventDefault();
+    if (!analysisUrl.trim()) {
+      setError('Please enter a URL to analyze');
+      return;
+    }
+
+    setAnalysisLoading(true);
+    setError('');
+    setAnalysisResult(null);
+    
+    try {
+      const response = await axios.post(`${API_BASE}/analyze`, {
+        url: analysisUrl
+      });
+      setAnalysisTask(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to start content analysis');
+      setAnalysisLoading(false);
+    }
+  };
+
+  // Add tech spec submit handler
+  const handleTechSpecSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!techSpecUrl.trim()) {
+      setError('Please enter a URL to analyze');
+      return;
+    }
+    
+    // URL validation
+    const urlPattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+    if (!urlPattern.test(techSpecUrl)) {
+      setError('Please enter a valid URL (e.g., https://example.com)');
+      return;
+    }
+
+    setTechSpecLoading(true);
+    setError('');
+    setTechSpecResult(null);
+    
+    try {
+      console.log('🔧 Starting technical specification for:', techSpecUrl);
+      
+      const response = await axios.post(`${API_BASE}/tech-spec`, {
+        url: techSpecUrl
+      });
+      
+      console.log('✅ Tech spec task created:', response.data.task_id);
+      setTechSpecTask(response.data);
+      
+    } catch (err) {
+      console.error('❌ Tech spec submission failed:', err);
+      
+      if (err.response?.status === 503) {
+        setError('Technical specification service unavailable - check if Browserbase is configured');
+      } else if (err.response?.status === 400) {
+        setError('Invalid URL provided - please check the format');
+      } else if (err.response?.data?.detail) {
+        setError(`Failed to start analysis: ${err.response.data.detail}`);
+      } else {
+        setError('Failed to start technical specification - please try again');
+      }
+      
+      setTechSpecLoading(false);
+    }
+  };
+  
   // Clear all results and reset form
   const handleClearAll = () => {
     setReverseInput('');
@@ -198,6 +348,14 @@ function App() {
     setScreenshotTask(null);
     setScreenshotResult(null);
     setScreenshotLoading(false);
+    setAnalysisUrl('');
+    setAnalysisTask(null);
+    setAnalysisResult(null);
+    setAnalysisLoading(false);
+    setTechSpecUrl('');
+    setTechSpecTask(null);
+    setTechSpecResult(null);
+    setTechSpecLoading(false);
     setError('');
   };
 
@@ -616,6 +774,465 @@ function App() {
               </div>
             )}
           </div>
+          {/* Content Analysis Demo */}
+            <div className="demo-card">
+              <div className="card-header">
+                <h3>🧠 Content Analysis</h3>
+                <p>AI-powered page analysis with insights and summaries</p>
+              </div>
+              
+              <form onSubmit={handleAnalysisSubmit} className="demo-form">
+                <div className="input-group">
+                  <label>Enter website URL to analyze:</label>
+                  <input
+                    type="text"
+                    value={analysisUrl}
+                    onChange={(e) => setAnalysisUrl(e.target.value)}
+                    placeholder="https://example.com"
+                    disabled={analysisLoading}
+                    className="demo-input"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={analysisLoading || !analysisUrl.trim()}
+                  className="demo-btn primary"
+                >
+                  {analysisLoading ? (
+                    <>
+                      <span className="spinner"></span>
+                      Analyzing...
+                    </>
+                  ) : (
+                    'Analyze Content'
+                  )}
+                </button>
+              </form>
+
+              {/* Task Progress */}
+              {analysisTask && !analysisResult && (
+                <div className="task-progress">
+                  <div className="progress-header">
+                    <span>Analyzing Content</span>
+                    <span className="task-id">ID: {analysisTask.task_id.slice(0, 8)}...</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div className="progress-fill"></div>
+                  </div>
+                  <div className="progress-steps">
+                    <small>Extracting content → AI analysis → Generating insights</small>
+                  </div>
+                </div>
+              )}
+
+              {/* Analysis Results */}
+              {analysisResult && (
+                <div className="result-panel">
+                  <div className="result-header">
+                    <span className={`result-status ${analysisResult.status}`}>
+                      {analysisResult.status === 'completed' ? '🧠 Analysis Complete' : 'Failed'}
+                    </span>
+                    {analysisResult.processing_time_seconds && (
+                      <span className="processing-time">
+                        {analysisResult.processing_time_seconds}s
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="result-content">
+                    {/* Page Title */}
+                    {analysisResult.title && (
+                      <div className="result-item">
+                        <label>Page Title:</label>
+                        <div className="result-text">{analysisResult.title}</div>
+                      </div>
+                    )}
+                    
+                    {/* AI Summary */}
+                    {analysisResult.summary && (
+                      <div className="result-item">
+                        <label>AI Summary:</label>
+                        <div className="result-text summary">{analysisResult.summary}</div>
+                      </div>
+                    )}
+                    
+                    {/* Main Topics */}
+                    {analysisResult.main_topics && analysisResult.main_topics.length > 0 && (
+                      <div className="result-item">
+                        <label>Main Topics:</label>
+                        <div className="topics-container">
+                          {analysisResult.main_topics.map((topic, index) => (
+                            <span key={index} className="topic-tag">{topic}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Page Purpose */}
+                    {analysisResult.page_purpose && (
+                      <div className="result-item">
+                        <label>Page Purpose:</label>
+                        <div className="result-text purpose">{analysisResult.page_purpose}</div>
+                      </div>
+                    )}
+                    
+                    {/* Key Information */}
+                    {analysisResult.key_information && (
+                      <div className="result-item">
+                        <label>Key Information:</label>
+                        <div className="key-info-container">
+                          
+                          {/* Key Points */}
+                          {analysisResult.key_information.key_points && analysisResult.key_information.key_points.length > 0 && (
+                            <div className="key-info-section">
+                              <h5>Key Points:</h5>
+                              <ul className="key-points-list">
+                                {analysisResult.key_information.key_points.slice(0, 5).map((point, index) => (
+                                  <li key={index}>
+                                    <span className="heading-level">{point.type}</span>
+                                    {point.text}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          
+                          {/* Important Links */}
+                          {analysisResult.key_information.important_links && analysisResult.key_information.important_links.length > 0 && (
+                            <div className="key-info-section">
+                              <h5>Important Links:</h5>
+                              <div className="important-links">
+                                {analysisResult.key_information.important_links.map((link, index) => (
+                                  <span key={index} className="link-tag">{link}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Contact Info */}
+                          {analysisResult.key_information.has_contact_info && (
+                            <div className="key-info-section">
+                              <h5>Contact Information Found:</h5>
+                              <div className="contact-info">
+                                {analysisResult.key_information.contact_info.emails.length > 0 && (
+                                  <div>📧 {analysisResult.key_information.contact_info.emails.length} email(s)</div>
+                                )}
+                                {analysisResult.key_information.contact_info.phones.length > 0 && (
+                                  <div>📞 {analysisResult.key_information.contact_info.phones.length} phone(s)</div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Content Metrics */}
+                    {analysisResult.content_metrics && (
+                      <div className="result-item">
+                        <label>Content Metrics:</label>
+                        <div className="metrics-container">
+                          <div className="metric">
+                            <span className="metric-value">{analysisResult.content_metrics.word_count}</span>
+                            <span className="metric-label">Words</span>
+                          </div>
+                          <div className="metric">
+                            <span className="metric-value">{analysisResult.content_metrics.heading_count}</span>
+                            <span className="metric-label">Headings</span>
+                          </div>
+                          <div className="metric">
+                            <span className="metric-value">{analysisResult.content_metrics.link_count}</span>
+                            <span className="metric-label">Links</span>
+                          </div>
+                          <div className="metric">
+                            <span className="metric-value">{analysisResult.content_metrics.image_count}</span>
+                            <span className="metric-label">Images</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Readability Score */}
+                    {analysisResult.readability_score && (
+                      <div className="result-item">
+                        <label>Readability:</label>
+                        <div className="readability-badge">{analysisResult.readability_score}</div>
+                      </div>
+                    )}
+                    
+                    {/* Error Display */}
+                    {analysisResult.error && (
+                      <div className="result-item error">
+                        <label>Error:</label>
+                        <div className="result-text">{analysisResult.error}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          {/* Technical Specification Demo */}
+            <div className="demo-card">
+              <div className="card-header">
+                <h3>🔧 Technical Specification</h3>
+                <p>Generate comprehensive rebuild documentation with HTML, CSS, and JavaScript specs</p>
+              </div>
+              
+              <form onSubmit={handleTechSpecSubmit} className="demo-form">
+                <div className="input-group">
+                  <label>Enter website URL for technical analysis:</label>
+                  <input
+                    type="text"
+                    value={techSpecUrl}
+                    onChange={(e) => setTechSpecUrl(e.target.value)}
+                    placeholder="https://example.com"
+                    disabled={techSpecLoading}
+                    className="demo-input"
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={techSpecLoading || !techSpecUrl.trim()}
+                  className="demo-btn primary"
+                >
+                  {techSpecLoading ? (
+                    <>
+                      <span className="spinner"></span>
+                      Generating Spec...
+                    </>
+                  ) : (
+                    'Generate Technical Spec'
+                  )}
+                </button>
+              </form>
+
+              {/* Task Progress */}
+              {techSpecTask && !techSpecResult && (
+                <div className="task-progress">
+                  <div className="progress-header">
+                    <span>Generating Technical Specification</span>
+                    <span className="task-id">ID: {techSpecTask.task_id.slice(0, 8)}...</span>
+                  </div>
+                  <div className="progress-bar">
+                    <div className="progress-fill"></div>
+                  </div>
+                  <div className="progress-steps">
+                    <small>Analyzing structure → Extracting styles → Documenting functionality → Generating guide</small>
+                  </div>
+                </div>
+              )}
+
+              {/* Technical Specification Results */}
+              {techSpecResult && (
+                <div className="result-panel">
+                  <div className="result-header">
+                    <span className={`result-status ${techSpecResult.status}`}>
+                      {techSpecResult.status === 'completed' ? '🔧 Specification Generated' : 'Failed'}
+                    </span>
+                    <div className="spec-metadata">
+                      {techSpecResult.complexity_level && (
+                        <span className="complexity-badge">{techSpecResult.complexity_level}</span>
+                      )}
+                      {techSpecResult.processing_time_seconds && (
+                        <span className="processing-time">
+                          {techSpecResult.processing_time_seconds}s
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="result-content">
+                    {techSpecResult.specification && (
+                      <div className="tech-spec-container">
+                        
+                        {/* HTML Structure Requirements */}
+                        {techSpecResult.specification.html_structure && (
+                          <div className="spec-section">
+                            <h4 className="spec-title">📄 HTML Structure Requirements</h4>
+                            <div className="spec-content">
+                              <div className="spec-item">
+                                <strong>Document Type:</strong> {techSpecResult.specification.html_structure.document_type}
+                              </div>
+                              <div className="spec-item">
+                                <strong>Language:</strong> {techSpecResult.specification.html_structure.language}
+                              </div>
+                              <div className="spec-item">
+                                <strong>Title:</strong> {techSpecResult.specification.html_structure.title}
+                              </div>
+                              {techSpecResult.specification.html_structure.semantic_elements && (
+                                <div className="spec-item">
+                                  <strong>Semantic Elements:</strong>
+                                  <div className="tag-list">
+                                    {techSpecResult.specification.html_structure.semantic_elements.map((tag, index) => (
+                                      <span key={index} className="html-tag">&lt;{tag}&gt;</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* CSS Requirements */}
+                        {techSpecResult.specification.css_requirements && (
+                          <div className="spec-section">
+                            <h4 className="spec-title">🎨 CSS Styling Requirements</h4>
+                            <div className="spec-content">
+                              <div className="spec-item">
+                                <strong>Layout System:</strong> {techSpecResult.specification.css_requirements.layout_system?.primary}
+                              </div>
+                              {techSpecResult.specification.css_requirements.color_palette && (
+                                <div className="spec-item">
+                                  <strong>Color Palette:</strong>
+                                  <div className="color-palette">
+                                    {techSpecResult.specification.css_requirements.color_palette.background_colors?.slice(0, 6).map((color, index) => (
+                                      <div key={index} className="color-swatch" style={{backgroundColor: color}} title={color}></div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {techSpecResult.specification.css_requirements.responsive_design && (
+                                <div className="spec-item">
+                                  <strong>Responsive Breakpoints:</strong>
+                                  <ul className="breakpoint-list">
+                                    {techSpecResult.specification.css_requirements.responsive_design.breakpoints?.map((bp, index) => (
+                                      <li key={index}>{bp}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* JavaScript Functionality */}
+                        {techSpecResult.specification.javascript_functionality && (
+                          <div className="spec-section">
+                            <h4 className="spec-title">⚡ JavaScript Functionality</h4>
+                            <div className="spec-content">
+                              {techSpecResult.specification.javascript_functionality.framework_requirements && (
+                                <div className="spec-item">
+                                  <strong>Detected Frameworks:</strong>
+                                  <div className="framework-list">
+                                    {techSpecResult.specification.javascript_functionality.framework_requirements.detected_frameworks?.map((fw, index) => (
+                                      <span key={index} className="framework-tag">{fw}</span>
+                                    ))}
+                                    {techSpecResult.specification.javascript_functionality.framework_requirements.detected_frameworks?.length === 0 && (
+                                      <span className="framework-tag">Vanilla JavaScript</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              {techSpecResult.specification.javascript_functionality.form_handling?.length > 0 && (
+                                <div className="spec-item">
+                                  <strong>Forms Found:</strong> {techSpecResult.specification.javascript_functionality.form_handling.length}
+                                  <div className="forms-list">
+                                    {techSpecResult.specification.javascript_functionality.form_handling.map((form, index) => (
+                                      <div key={index} className="form-spec">
+                                        Form {index + 1}: {form.fields?.length || 0} fields ({form.method})
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Implementation Guide */}
+                        {techSpecResult.specification.step_by_step_guide && (
+                          <div className="spec-section">
+                            <h4 className="spec-title">📋 Step-by-Step Implementation Guide</h4>
+                            <div className="implementation-guide">
+                              {techSpecResult.specification.step_by_step_guide.slice(0, 6).map((step, index) => (
+                                <div key={index} className="implementation-step">
+                                  <div className="step-header">
+                                    <span className="step-number">{step.step}</span>
+                                    <h5>{step.title}</h5>
+                                  </div>
+                                  <p className="step-description">{step.description}</p>
+                                  <ul className="task-list">
+                                    {step.tasks?.slice(0, 4).map((task, taskIndex) => (
+                                      <li key={taskIndex}>{task}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Technical Requirements */}
+                        {techSpecResult.specification.technical_requirements && (
+                          <div className="spec-section">
+                            <h4 className="spec-title">⚙️ Technical Requirements</h4>
+                            <div className="spec-content">
+                              {techSpecResult.specification.technical_requirements.browser_support && (
+                                <div className="spec-item">
+                                  <strong>Browser Support:</strong>
+                                  <div className="browser-list">
+                                    {techSpecResult.specification.technical_requirements.browser_support.map((browser, index) => (
+                                      <span key={index} className="browser-tag">{browser}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {techSpecResult.specification.technical_requirements.dependencies && (
+                                <div className="spec-item">
+                                  <strong>Dependencies:</strong>
+                                  <div className="dependencies-info">
+                                    <span>External Stylesheets: {techSpecResult.specification.technical_requirements.dependencies.external_stylesheets || 0}</span>
+                                    <span>External Scripts: {techSpecResult.specification.technical_requirements.dependencies.external_scripts || 0}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Content Specification */}
+                        {techSpecResult.specification.content_specification && (
+                          <div className="spec-section">
+                            <h4 className="spec-title">📝 Content Specification</h4>
+                            <div className="spec-content">
+                              {techSpecResult.specification.content_specification.content_types && (
+                                <div className="spec-item">
+                                  <strong>Content Types Found:</strong>
+                                  <div className="content-types">
+                                    {techSpecResult.specification.content_specification.content_types.map((type, index) => (
+                                      <span key={index} className="content-type-tag">{type}</span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {techSpecResult.specification.content_specification.content_guidelines && (
+                                <div className="spec-item">
+                                  <strong>Content Guidelines:</strong>
+                                  <ul className="guidelines-list">
+                                    {techSpecResult.specification.content_specification.content_guidelines.slice(0, 3).map((guideline, index) => (
+                                      <li key={index}>{guideline}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                      </div>
+                    )}
+                    
+                    {/* Error Display */}
+                    {techSpecResult.error && (
+                      <div className="result-item error">
+                        <label>Error:</label>
+                        <div className="result-text">{techSpecResult.error}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>  
           {/* Demo Controls */}
           <div className="demo-controls">
             <button onClick={handleClearAll} className="demo-btn secondary">

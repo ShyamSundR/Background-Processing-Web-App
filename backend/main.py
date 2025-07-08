@@ -10,11 +10,39 @@ from typing import Optional
 import httpx
 
 # Import workflows
-from workflows import ReverseWorkflow, ScreenshotWorkflow
+from workflows import ReverseWorkflow, ScreenshotWorkflow, ContentAnalysisWorkflow, TechnicalSpecificationWorkflow
 
 # Load environment variables
 load_dotenv()
 
+class TechSpecRequest(BaseModel):
+    url: str
+
+class TechSpecResponse(BaseModel):
+    task_id: str
+    status: str
+    url: str
+    specification: Optional[dict] = None
+    complexity_level: Optional[str] = None
+    processing_time_seconds: Optional[float] = None
+    error: Optional[str] = None
+
+class ContentAnalysisRequest(BaseModel):
+    url: str
+
+class ContentAnalysisResponse(BaseModel):
+    task_id: str
+    status: str
+    url: str
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    main_topics: Optional[list] = None
+    page_purpose: Optional[str] = None
+    key_information: Optional[dict] = None
+    content_metrics: Optional[dict] = None
+    readability_score: Optional[str] = None
+    processing_time_seconds: Optional[float] = None
+    error: Optional[str] = None
 # Pydantic models
 class ReverseRequest(BaseModel):
     text: str
@@ -390,6 +418,192 @@ async def summarize_text(request: SummarizeRequest):
     except Exception as e:
         print(f"❌ Complete summarization failure: {e}")
         raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
+    
+@app.post("/analyze", response_model=ContentAnalysisResponse)
+async def analyze_content(request: ContentAnalysisRequest):
+    """Start comprehensive content analysis for a webpage"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    if not request.url.strip():
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+    
+    # Check dependencies
+    if not os.getenv("BROWSERBASE_API_KEY") or not os.getenv("BROWSERBASE_PROJECT_ID"):
+        raise HTTPException(status_code=503, detail="Browserbase not configured")
+    
+    if not os.getenv("HUGGINGFACE_API_TOKEN"):
+        raise HTTPException(status_code=503, detail="HuggingFace API not configured")
+    
+    task_id = str(uuid.uuid4())
+    
+    try:
+        handle = await temporal_client.start_workflow(
+            ContentAnalysisWorkflow.run,
+            request.url,
+            id=task_id,
+            task_queue="string-processing-queue",
+        )
+        
+        task_results[task_id] = {
+            "task_id": task_id,
+            "status": "running",
+            "url": request.url,
+            "analysis": None,
+            "error": None
+        }
+        
+        return ContentAnalysisResponse(
+            task_id=task_id,
+            status="running",
+            url=request.url
+        )
+        
+    except Exception as e:
+        print(f"❌ Error starting content analysis workflow: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
+
+@app.get("/analyze/{task_id}", response_model=ContentAnalysisResponse)
+async def get_analysis_status(task_id: str):
+    """Get the status and results of a content analysis task"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(task_id)
+        
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            
+            if result["status"] == "completed":
+                analysis = result.get("analysis", {})
+                content = result.get("content_data", {})
+                
+                return ContentAnalysisResponse(
+                    task_id=task_id,
+                    status="completed",
+                    url=result["url"],
+                    title=content.get("title"),
+                    summary=analysis.get("summary"),
+                    main_topics=analysis.get("main_topics"),
+                    page_purpose=analysis.get("page_purpose"),
+                    key_information=analysis.get("key_information"),
+                    content_metrics=analysis.get("content_metrics"),
+                    readability_score=analysis.get("readability_score"),
+                    processing_time_seconds=result.get("total_processing_time"),
+                    error=result.get("error")
+                )
+            else:
+                return ContentAnalysisResponse(
+                    task_id=task_id,
+                    status="failed",
+                    url=result["url"],
+                    error=result.get("error")
+                )
+                
+        except asyncio.TimeoutError:
+            return ContentAnalysisResponse(
+                task_id=task_id,
+                status="running",
+                url=task_results.get(task_id, {}).get("url", "")
+            )
+            
+    except Exception as e:
+        print(f"❌ Error getting analysis status: {e}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+
+# Add new API endpoints
+@app.post("/tech-spec", response_model=TechSpecResponse)
+async def generate_tech_spec(request: TechSpecRequest):
+    """Generate comprehensive technical specification for rebuilding a webpage"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    if not request.url.strip():
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+    
+    # Check dependencies
+    if not os.getenv("BROWSERBASE_API_KEY") or not os.getenv("BROWSERBASE_PROJECT_ID"):
+        raise HTTPException(status_code=503, detail="Browserbase not configured")
+    
+    task_id = str(uuid.uuid4())
+    
+    try:
+        handle = await temporal_client.start_workflow(
+            TechnicalSpecificationWorkflow.run,
+            request.url,
+            id=task_id,
+            task_queue="string-processing-queue",
+        )
+        
+        task_results[task_id] = {
+            "task_id": task_id,
+            "status": "running",
+            "url": request.url,
+            "specification": None,
+            "error": None
+        }
+        
+        return TechSpecResponse(
+            task_id=task_id,
+            status="running",
+            url=request.url
+        )
+        
+    except Exception as e:
+        print(f"❌ Error starting tech spec workflow: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
+
+@app.get("/tech-spec/{task_id}", response_model=TechSpecResponse)
+async def get_tech_spec_status(task_id: str):
+    """Get the status and results of a technical specification task"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(task_id)
+        
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            
+            if result["status"] == "completed":
+                tech_spec = result.get("technical_specification", {})
+                specification = tech_spec.get("specification", {})
+                
+                # Extract complexity level
+                complexity = (specification.get("technical_requirements", {})
+                            .get("dependencies", {})
+                            .get("estimated_complexity", "Unknown"))
+                
+                return TechSpecResponse(
+                    task_id=task_id,
+                    status="completed",
+                    url=result["url"],
+                    specification=specification,
+                    complexity_level=complexity,
+                    processing_time_seconds=tech_spec.get("processing_time_seconds"),
+                    error=result.get("error")
+                )
+            else:
+                return TechSpecResponse(
+                    task_id=task_id,
+                    status="failed",
+                    url=result["url"],
+                    error=result.get("error")
+                )
+                
+        except asyncio.TimeoutError:
+            return TechSpecResponse(
+                task_id=task_id,
+                status="running",
+                url=task_results.get(task_id, {}).get("url", "")
+            )
+            
+    except Exception as e:
+        print(f"❌ Error getting tech spec status: {e}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
 
 @app.get("/health")
 async def health_check():
@@ -415,6 +629,23 @@ async def health_check():
     if os.getenv("BROWSERBASE_API_KEY") and os.getenv("BROWSERBASE_PROJECT_ID"):
         browserbase_status = "configured"
     
+    content_analysis_status = "unavailable"
+    if temporal_client and os.getenv("BROWSERBASE_API_KEY") and os.getenv("HUGGINGFACE_API_TOKEN"):
+        content_analysis_status = "available"
+    elif not temporal_client:
+        content_analysis_status = "temporal unavailable"
+    elif not os.getenv("BROWSERBASE_API_KEY"):
+        content_analysis_status = "browserbase not configured"
+    elif not os.getenv("HUGGINGFACE_API_TOKEN"):
+        content_analysis_status = "huggingface not configured"
+    tech_spec_status = "unavailable"
+    if temporal_client and os.getenv("BROWSERBASE_API_KEY"):
+        tech_spec_status = "available"
+    elif not temporal_client:
+        tech_spec_status = "temporal unavailable"
+    elif not os.getenv("BROWSERBASE_API_KEY"):
+        tech_spec_status = "browserbase not configured"
+    
     return {
         "app": "healthy",
         "temporal": {
@@ -435,7 +666,9 @@ async def health_check():
         "features": {
             "string_reversal": "available" if temporal_client else "unavailable", 
             "ai_summarization": "available" if hf_token else "unavailable",
-            "screenshot_capture": "available" if (temporal_client and os.getenv("BROWSERBASE_API_KEY")) else "unavailable"
+            "screenshot_capture": "available" if (temporal_client and os.getenv("BROWSERBASE_API_KEY")) else "unavailable",
+            "content_analysis": content_analysis_status,
+            "technical_specification": tech_spec_status
         }
     }
 
