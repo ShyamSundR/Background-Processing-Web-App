@@ -10,22 +10,30 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 from dotenv import load_dotenv
 
-# Import workflows and activities
-from workflows import (
-    ReverseWorkflow, 
-    ScreenshotWorkflow,
-    ContentAnalysisWorkflow,
-    TechnicalSpecificationWorkflow,  
-    reverse_string_activity, 
-    log_processing_activity, 
-    capture_screenshot_activity,
-    extract_page_content_activity,
-    analyze_content_with_ai_activity,
-    generate_technical_specification_activity  
-)
 
+# Import workflows and activities
+try:
+    from workflows import (
+        ReverseWorkflow, 
+        ScreenshotWorkflow,
+        ContentAnalysisWorkflow,
+        TechnicalSpecificationWorkflow,
+        WebsiteGenerationWorkflow,
+        reverse_string_activity, 
+        log_processing_activity, 
+        capture_screenshot_activity,
+        extract_page_content_activity,
+        analyze_content_with_ai_activity,
+        generate_technical_specification_activity,
+        generate_frontend_code_activity
+    )
+    print("✅ Successfully imported all workflows and activities")
+except ImportError as e:
+    print(f"❌ Import error: {e}")
+    print("🔧 Trying to import workflows individually...")
 # Load environment variables
 load_dotenv()
+
 
 
 
@@ -78,29 +86,31 @@ class WorkerManager:
         
         # Create worker with workflows and activities
         self.worker = Worker(
-        self.client,
-        task_queue=task_queue,
-        workflows=[
-            ReverseWorkflow, 
-            ScreenshotWorkflow, 
-            ContentAnalysisWorkflow,
-            TechnicalSpecificationWorkflow  # ADD THIS
-        ],
-        activities=[
-            reverse_string_activity, 
-            log_processing_activity, 
-            capture_screenshot_activity,
-            extract_page_content_activity,
-            analyze_content_with_ai_activity,
-            generate_technical_specification_activity  # ADD THIS
-        ],
-        max_concurrent_activities=10
-    )
+            self.client,
+            task_queue=task_queue,
+            workflows=[
+                ReverseWorkflow, 
+                ScreenshotWorkflow, 
+                ContentAnalysisWorkflow,
+                TechnicalSpecificationWorkflow,
+                WebsiteGenerationWorkflow
+            ],
+            activities=[
+                reverse_string_activity, 
+                log_processing_activity, 
+                capture_screenshot_activity,
+                extract_page_content_activity,
+                analyze_content_with_ai_activity,
+                generate_technical_specification_activity,
+                generate_frontend_code_activity  # ADD THIS NEW ACTIVITY
+            ],
+            max_concurrent_activities=10
+        )
         
         print("🔧 Worker configured with:")
         print(f"   - Task Queue: {task_queue}")
-        print("   - Workflows: ReverseWorkflow, ScreenshotWorkflow, ContentAnalysisWorkflow")
-        print("   - Activities: 5 activities including content analysis")
+        print("   - Workflows: ReverseWorkflow, ScreenshotWorkflow, ContentAnalysisWorkflow, TechnicalSpecificationWorkflow, WebsiteGenerationWorkflow")
+        print("   - Activities: 6 activities including frontend code generation")
         print("   - Max Concurrent Activities: 10")
     
     def setup_signal_handlers(self):

@@ -11,6 +11,9 @@ import time
 import os
 import base64
 from typing import Optional
+# import httpx
+import re
+import urllib.request
 
 class StringProcessingError(Exception):
     """Custom exception for string processing errors"""
@@ -2289,6 +2292,460 @@ class TechnicalSpecificationWorkflow:
             return {
                 "url": url,
                 "technical_specification": None,
+                "error": error_msg,
+                "workflow_id": workflow_id,
+                "status": "failed"
+            }
+# ONLY ADD THESE NEW ITEMS TO YOUR EXISTING workflows.py FILE
+# (Don't duplicate what's already there)
+
+# ADD THIS NEW ACTIVITY (this is the only missing piece for code generation)
+@activity.defn
+async def generate_frontend_code_activity(tech_data: dict, content_data: dict) -> dict:
+    """Activity to generate HTML, CSS, and JavaScript code for rebuilding the website"""
+    start_time = time.time()
+    
+    print(f"[CODE_GEN] Starting frontend code generation...")
+    
+    try:
+        # Generate HTML
+        html_code = generate_html_code(tech_data, content_data)
+        
+        # Generate CSS
+        css_code = generate_css_code(tech_data)
+        
+        # Generate JavaScript (if needed)
+        js_code = generate_javascript_code(tech_data)
+        
+        processing_time = time.time() - start_time
+        
+        return {
+            "html_code": html_code,
+            "css_code": css_code,
+            "javascript_code": js_code,
+            "files_generated": ["index.html", "styles.css", "script.js"],
+            "processing_time_seconds": round(processing_time, 3)
+        }
+        
+    except Exception as e:
+        raise ValueError(f"Frontend code generation failed: {str(e)}")
+
+# ADD THESE HELPER FUNCTIONS (for code generation)
+def generate_html_code(tech_data: dict, content_data: dict) -> str:
+    """Generate HTML code based on analyzed structure"""
+    
+    metadata = tech_data.get("metadata", {})
+    layout = tech_data.get("layoutAnalysis", {})
+    title = content_data.get("title", "Generated Page")
+    headings = content_data.get("headings", [])
+    main_content = content_data.get("mainContent", "")
+    
+    html = f"""<!DOCTYPE html>
+<html lang="{metadata.get('lang', 'en')}">
+<head>
+    <meta charset="{metadata.get('charset', 'UTF-8')}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <meta name="description" content="{metadata.get('description', '')}">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>"""
+    
+    # Add header if detected
+    if layout.get("hasHeader"):
+        html += """
+    <header class="site-header">
+        <div class="container">
+            <h1 class="site-title">""" + title + """</h1>
+        </div>
+    </header>"""
+    
+    # Add navigation if detected
+    if layout.get("hasNav"):
+        html += """
+    <nav class="site-nav">
+        <div class="container">
+            <ul class="nav-menu">
+                <li><a href="#home">Home</a></li>
+                <li><a href="#about">About</a></li>
+                <li><a href="#services">Services</a></li>
+                <li><a href="#contact">Contact</a></li>
+            </ul>
+        </div>
+    </nav>"""
+    
+    # Add main content
+    html += """
+    <main class="main-content">
+        <div class="container">"""
+    
+    # Add headings and content
+    for heading in headings[:5]:  # Limit to first 5 headings
+        level = heading.get("level", 1)
+        text = heading.get("text", "")
+        if text:
+            html += f"""
+            <h{level}>{text}</h{level}>"""
+    
+    # Add main content in paragraphs
+    if main_content:
+        paragraphs = main_content.split('\n\n')[:3]  # First 3 paragraphs
+        for para in paragraphs:
+            if para.strip():
+                html += f"""
+            <p>{para.strip()}</p>"""
+    
+    html += """
+        </div>
+    </main>"""
+    
+    # Add footer if detected
+    if layout.get("hasFooter"):
+        html += """
+    <footer class="site-footer">
+        <div class="container">
+            <p>&copy; 2024 Generated Website. All rights reserved.</p>
+        </div>
+    </footer>"""
+    
+    html += """
+    <script src="script.js"></script>
+</body>
+</html>"""
+    
+    return html
+
+def generate_css_code(tech_data: dict) -> str:
+    """Generate CSS code based on analyzed styles"""
+    
+    layout = tech_data.get("layoutAnalysis", {})
+    
+    css = """/* Generated CSS based on analyzed website */
+
+/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #fff;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Header styles */
+.site-header {
+    background-color: #f8f9fa;
+    padding: 1rem 0;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.site-title {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+/* Navigation styles */
+.site-nav {
+    background-color: #2c3e50;
+    padding: 0.75rem 0;
+}
+
+.nav-menu {
+    list-style: none;
+    display: flex;
+    gap: 2rem;
+}
+
+.nav-menu a {
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.nav-menu a:hover {
+    color: #3498db;
+}
+
+/* Main content styles */
+.main-content {
+    padding: 2rem 0;
+    min-height: 60vh;
+}
+
+.main-content h1 {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    color: #2c3e50;
+}
+
+.main-content h2 {
+    font-size: 2rem;
+    margin: 1.5rem 0 1rem;
+    color: #34495e;
+}
+
+.main-content h3 {
+    font-size: 1.5rem;
+    margin: 1.25rem 0 0.75rem;
+    color: #34495e;
+}
+
+.main-content p {
+    margin-bottom: 1rem;
+    line-height: 1.7;
+}
+
+/* Footer styles */
+.site-footer {
+    background-color: #2c3e50;
+    color: white;
+    text-align: center;
+    padding: 1.5rem 0;
+    margin-top: 2rem;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .container {
+        padding: 0 15px;
+    }
+    
+    .nav-menu {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .site-title {
+        font-size: 1.5rem;
+    }
+    
+    .main-content h1 {
+        font-size: 2rem;
+    }
+}"""
+    
+    return css
+
+def generate_javascript_code(tech_data: dict) -> str:
+    """Generate JavaScript code based on detected functionality"""
+    
+    frameworks = tech_data.get("jsAnalysis", {}).get("frameworks", [])
+    
+    js = """// Generated JavaScript based on analyzed website
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Website loaded and ready');
+    
+    // Add smooth scrolling for navigation links
+    const navLinks = document.querySelectorAll('.nav-menu a[href^="#"]');
+    navLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const targetId = this.getAttribute('href').substring(1);
+            const targetElement = document.getElementById(targetId);
+            
+            if (targetElement) {
+                targetElement.scrollIntoView({
+                    behavior: 'smooth'
+                });
+            }
+        });
+    });
+    
+    // Add mobile menu toggle if needed
+    const navMenu = document.querySelector('.nav-menu');
+    if (navMenu && window.innerWidth <= 768) {
+        // Mobile menu functionality would go here
+        console.log('Mobile layout detected');
+    }
+    
+    // Add any interactive elements
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(button => {
+        button.addEventListener('click', function() {
+            console.log('Button clicked:', this.textContent);
+        });
+    });
+});
+
+// Utility functions
+function showMessage(message, type = 'info') {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message message-${type}`;
+    messageDiv.textContent = message;
+    
+    document.body.appendChild(messageDiv);
+    
+    setTimeout(() => {
+        messageDiv.remove();
+    }, 3000);
+}
+
+// Export for use in other scripts if needed
+window.siteUtils = {
+    showMessage
+};"""
+    
+    return js
+
+# ADD THIS NEW COMPREHENSIVE WORKFLOW (this is the main addition)
+@workflow.defn
+class WebsiteGenerationWorkflow:
+    """
+    Comprehensive workflow that combines all steps:
+    1. Screenshots the website
+    2. Extracts content and analyzes with AI
+    3. Generates technical specification  
+    4. Produces frontend code for rebuilding
+    """
+    
+    @workflow.run
+    async def run(self, url: str) -> dict:
+        workflow_id = workflow.info().workflow_id
+        
+        try:
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("URL cannot be empty")
+            
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=(f"Starting comprehensive website generation for: {url}", workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            # Step 1: Capture screenshot
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=("Step 1: Capturing screenshot", workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            screenshot_result = await workflow.execute_activity(
+                capture_screenshot_activity,
+                args=(url,),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=2),
+                    maximum_interval=timedelta(seconds=20),
+                    maximum_attempts=3
+                )
+            )
+            
+            # Step 2: Extract and analyze content
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=("Step 2: Extracting and analyzing content", workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            content_data = await workflow.execute_activity(
+                extract_page_content_activity,
+                args=(url,),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=2),
+                    maximum_interval=timedelta(seconds=20),
+                    maximum_attempts=3
+                )
+            )
+            
+            # Step 3: Generate technical specification
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=("Step 3: Generating technical specification", workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            tech_spec = await workflow.execute_activity(
+                generate_technical_specification_activity,
+                args=(url,),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=3),
+                    maximum_interval=timedelta(seconds=30),
+                    maximum_attempts=3
+                )
+            )
+            
+            # Step 4: Generate frontend code
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=("Step 4: Generating frontend code", workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            frontend_code = await workflow.execute_activity(
+                generate_frontend_code_activity,
+                args=(tech_spec["technical_data"], content_data),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=2),
+                    maximum_interval=timedelta(seconds=20),
+                    maximum_attempts=2
+                )
+            )
+            
+            # Calculate total processing time
+            total_time = (
+                screenshot_result.get("processing_time_seconds", 0) +
+                content_data.get("processing_time_seconds", 0) +
+                tech_spec.get("processing_time_seconds", 0) +
+                frontend_code.get("processing_time_seconds", 0)
+            )
+            
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=(f"Website generation completed in {total_time:.2f}s", workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            return {
+                "url": url,
+                "screenshot": {
+                    "page_title": screenshot_result["page_title"],
+                    "screenshot_data": screenshot_result["screenshot_data"],
+                    "session_id": screenshot_result["session_id"],
+                    "replay_url": screenshot_result["replay_url"]
+                },
+                "content_analysis": content_data,
+                "technical_specification": tech_spec,
+                "generated_code": {
+                    "html": frontend_code["html_code"],
+                    "css": frontend_code["css_code"],
+                    "javascript": frontend_code["javascript_code"],
+                    "files": frontend_code["files_generated"]
+                },
+                "workflow_id": workflow_id,
+                "status": "completed",
+                "total_processing_time_seconds": total_time
+            }
+            
+        except Exception as e:
+            error_msg = f"Website generation workflow failed: {str(e)}"
+            await workflow.execute_activity(
+                log_processing_activity,
+                args=(error_msg, workflow_id),
+                start_to_close_timeout=timedelta(seconds=10)
+            )
+            
+            return {
+                "url": url,
+                "screenshot": None,
+                "content_analysis": None,
+                "technical_specification": None,
+                "generated_code": None,
                 "error": error_msg,
                 "workflow_id": workflow_id,
                 "status": "failed"

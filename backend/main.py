@@ -10,10 +10,26 @@ from typing import Optional
 import httpx
 
 # Import workflows
-from workflows import ReverseWorkflow, ScreenshotWorkflow, ContentAnalysisWorkflow, TechnicalSpecificationWorkflow
+from workflows import ReverseWorkflow, ScreenshotWorkflow, ContentAnalysisWorkflow, TechnicalSpecificationWorkflow, WebsiteGenerationWorkflow
+
+
 
 # Load environment variables
 load_dotenv()
+
+class WebsiteGenerationRequest(BaseModel):
+    url: str
+
+class WebsiteGenerationResponse(BaseModel):
+    task_id: str
+    status: str
+    url: str
+    screenshot: Optional[dict] = None
+    content_analysis: Optional[dict] = None
+    technical_specification: Optional[dict] = None
+    generated_code: Optional[dict] = None
+    total_processing_time_seconds: Optional[float] = None
+    error: Optional[str] = None
 
 class TechSpecRequest(BaseModel):
     url: str
@@ -603,6 +619,143 @@ async def get_tech_spec_status(task_id: str):
     except Exception as e:
         print(f"❌ Error getting tech spec status: {e}")
         raise HTTPException(status_code=404, detail="Task not found")
+
+@app.post("/generate-website", response_model=WebsiteGenerationResponse)
+async def generate_website(request: WebsiteGenerationRequest):
+    """
+    Comprehensive website generation - combines all steps:
+    1. Screenshot capture
+    2. Content analysis 
+    3. Technical specification
+    4. Frontend code generation
+    """
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    if not request.url.strip():
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+    
+    # Check all required dependencies
+    missing_deps = []
+    if not os.getenv("BROWSERBASE_API_KEY"):
+        missing_deps.append("BROWSERBASE_API_KEY")
+    if not os.getenv("BROWSERBASE_PROJECT_ID"):
+        missing_deps.append("BROWSERBASE_PROJECT_ID")
+    if not os.getenv("HUGGINGFACE_API_TOKEN"):
+        missing_deps.append("HUGGINGFACE_API_TOKEN")
+    
+    if missing_deps:
+        raise HTTPException(
+            status_code=503, 
+            detail=f"Missing required environment variables: {', '.join(missing_deps)}"
+        )
+    
+    task_id = str(uuid.uuid4())
+    
+    try:
+        handle = await temporal_client.start_workflow(
+            WebsiteGenerationWorkflow.run,
+            request.url,
+            id=task_id,
+            task_queue="string-processing-queue",
+        )
+        
+        task_results[task_id] = {
+            "task_id": task_id,
+            "status": "running",
+            "url": request.url,
+            "result": None,
+            "error": None
+        }
+        
+        return WebsiteGenerationResponse(
+            task_id=task_id,
+            status="running",
+            url=request.url
+        )
+        
+    except Exception as e:
+        print(f"❌ Error starting website generation workflow: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start workflow: {str(e)}")
+
+@app.get("/generate-website/{task_id}", response_model=WebsiteGenerationResponse)
+async def get_website_generation_status(task_id: str):
+    """Get the status and results of a comprehensive website generation task"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(task_id)
+        
+        try:
+            result = await asyncio.wait_for(handle.result(), timeout=0.1)
+            
+            if result["status"] == "completed":
+                return WebsiteGenerationResponse(
+                    task_id=task_id,
+                    status="completed",
+                    url=result["url"],
+                    screenshot=result.get("screenshot"),
+                    content_analysis=result.get("content_analysis"),
+                    technical_specification=result.get("technical_specification"),
+                    generated_code=result.get("generated_code"),
+                    total_processing_time_seconds=result.get("total_processing_time_seconds"),
+                    error=result.get("error")
+                )
+            else:
+                return WebsiteGenerationResponse(
+                    task_id=task_id,
+                    status="failed",
+                    url=result["url"],
+                    error=result.get("error")
+                )
+                
+        except asyncio.TimeoutError:
+            return WebsiteGenerationResponse(
+                task_id=task_id,
+                status="running",
+                url=task_results.get(task_id, {}).get("url", "")
+            )
+            
+    except Exception as e:
+        print(f"❌ Error getting website generation status: {e}")
+        raise HTTPException(status_code=404, detail="Task not found")
+
+# ADD A UTILITY ENDPOINT FOR DOWNLOADING GENERATED CODE:
+
+@app.get("/download-code/{task_id}")
+async def download_generated_code(task_id: str):
+    """Download the generated HTML, CSS, and JavaScript files as a ZIP"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(task_id)
+        result = await asyncio.wait_for(handle.result(), timeout=0.1)
+        
+        if result["status"] != "completed":
+            raise HTTPException(status_code=400, detail="Task not completed yet")
+        
+        generated_code = result.get("generated_code")
+        if not generated_code:
+            raise HTTPException(status_code=404, detail="No generated code found")
+        
+        # Return the code as JSON for now (frontend can handle file creation)
+        return {
+            "files": {
+                "index.html": generated_code.get("html", ""),
+                "styles.css": generated_code.get("css", ""),
+                "script.js": generated_code.get("javascript", "")
+            },
+            "url": result["url"],
+            "timestamp": result.get("total_processing_time_seconds")
+        }
+        
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=400, detail="Task still running")
+    except Exception as e:
+        print(f"❌ Error downloading code: {e}")
+        raise HTTPException(status_code=404, detail="Task not found or failed")
 
 
 @app.get("/health")

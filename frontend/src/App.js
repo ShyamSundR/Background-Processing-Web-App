@@ -36,6 +36,11 @@ function App() {
   const [techSpecTask, setTechSpecTask] = useState(null);
   const [techSpecResult, setTechSpecResult] = useState(null);
   const [techSpecLoading, setTechSpecLoading] = useState(false);
+
+  const [websiteGenUrl, setWebsiteGenUrl] = useState('');
+  const [websiteGenTask, setWebsiteGenTask] = useState(null);
+  const [websiteGenResult, setWebsiteGenResult] = useState(null);
+  const [websiteGenLoading, setWebsiteGenLoading] = useState(false);
   // Error handling
   const [error, setError] = useState('');
   
@@ -183,6 +188,46 @@ function App() {
       if (interval) clearInterval(interval);
     };
   }, [techSpecTask, techSpecResult]);
+
+  useEffect(() => {
+    let interval;
+    if (websiteGenTask && !websiteGenResult) {
+      interval = setInterval(async () => {
+        try {
+          const response = await axios.get(`${API_BASE}/generate-website/${websiteGenTask.task_id}`);
+          const data = response.data;
+          
+          console.log('Website generation status:', data.status);
+          
+          if (data.status === 'completed' || data.status === 'failed') {
+            setWebsiteGenResult(data);
+            setWebsiteGenTask(null);
+            setWebsiteGenLoading(false);
+            
+            if (data.status === 'failed' && data.error) {
+              setError(`Website generation failed: ${data.error}`);
+            }
+            
+            if (data.status === 'completed') {
+              console.log('✅ Website generation completed successfully');
+            }
+            
+            clearInterval(interval);
+          }
+        } catch (err) {
+          console.error('Error polling website generation status:', err);
+          setError('Failed to get website generation status');
+          setWebsiteGenLoading(false);
+          clearInterval(interval);
+        }
+      }, 5000); // 5 second intervals for comprehensive workflow
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [websiteGenTask, websiteGenResult]);
+  
 
   // Add screenshot submit handler
   const handleScreenshotSubmit = async (e) => {
@@ -334,7 +379,113 @@ function App() {
       setTechSpecLoading(false);
     }
   };
+  const handleWebsiteGenSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!websiteGenUrl.trim()) {
+      setError('Please enter a URL to analyze');
+      return;
+    }
+    
+    // URL validation
+    const urlPattern = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+    if (!urlPattern.test(websiteGenUrl)) {
+      setError('Please enter a valid URL (e.g., https://example.com)');
+      return;
+    }
   
+    setWebsiteGenLoading(true);
+    setError('');
+    setWebsiteGenResult(null);
+    
+    try {
+      console.log('🚀 Starting comprehensive website generation for:', websiteGenUrl);
+      
+      const response = await axios.post(`${API_BASE}/generate-website`, {
+        url: websiteGenUrl
+      });
+      
+      console.log('✅ Website generation task created:', response.data.task_id);
+      setWebsiteGenTask(response.data);
+      
+    } catch (err) {
+      console.error('❌ Website generation submission failed:', err);
+      
+      if (err.response?.status === 503) {
+        if (err.response.data.detail.includes('BROWSERBASE')) {
+          setError('Browserbase not configured - contact administrator');
+        } else if (err.response.data.detail.includes('HUGGINGFACE')) {
+          setError('AI service not configured - contact administrator');
+        } else {
+          setError('Required services unavailable - check configuration');
+        }
+      } else if (err.response?.status === 400) {
+        setError('Invalid URL provided - please check the format');
+      } else if (err.response?.data?.detail) {
+        setError(`Failed to start generation: ${err.response.data.detail}`);
+      } else {
+        setError('Failed to start website generation - please try again');
+      }
+      
+      setWebsiteGenLoading(false);
+    }
+  };
+
+  // REPLACE the handleDownloadCode function with this fixed version:
+  const handleDownloadCode = async (taskId) => {
+    try {
+      console.log('Downloading code for task:', taskId);
+      
+      // Use the correct task ID from the result, not the old task
+      const actualTaskId = websiteGenResult?.task_id || taskId;
+      
+      const response = await axios.get(`${API_BASE}/download-code/${actualTaskId}`);
+      const files = response.data.files;
+      
+      if (!files || Object.keys(files).length === 0) {
+        setError('No code files available for download');
+        return;
+      }
+      
+      // Create and download each file
+      Object.entries(files).forEach(([filename, content]) => {
+        if (content && content.trim()) {
+          const blob = new Blob([content], { 
+            type: filename.endsWith('.html') ? 'text/html' : 
+                  filename.endsWith('.css') ? 'text/css' :
+                  filename.endsWith('.js') ? 'text/javascript' : 'text/plain'
+          });
+          
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          link.style.display = 'none';
+          
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          
+          console.log(`✅ Downloaded: ${filename}`);
+        }
+      });
+      
+      console.log('✅ All code files downloaded successfully');
+      
+    } catch (err) {
+      console.error('❌ Failed to download code:', err);
+      
+      if (err.response?.status === 404) {
+        setError('Code files not found - task may not be completed yet');
+      } else if (err.response?.status === 400) {
+        setError('Task not ready for download yet');
+      } else {
+        setError('Failed to download generated code files');
+      }
+    }
+  };
+
   // Clear all results and reset form
   const handleClearAll = () => {
     setReverseInput('');
@@ -356,6 +507,10 @@ function App() {
     setTechSpecTask(null);
     setTechSpecResult(null);
     setTechSpecLoading(false);
+    setWebsiteGenUrl('');          // ADD THIS
+    setWebsiteGenTask(null);       // ADD THIS
+    setWebsiteGenResult(null);     // ADD THIS
+    setWebsiteGenLoading(false);   // ADD THIS
     setError('');
   };
 
@@ -1232,7 +1387,186 @@ function App() {
                   </div>
                 </div>
               )}
-            </div>  
+            </div>
+            {/* Comprehensive Website Generation Demo */}
+              <div className="demo-card featured-card">
+                <div className="card-header">
+                  <h3>🚀 Complete Website Generation</h3>
+                  <p>All-in-one: Screenshot + Analysis + Technical Spec + Code Generation</p>
+                </div>
+                
+                <form onSubmit={handleWebsiteGenSubmit} className="demo-form">
+                  <div className="input-group">
+                    <label>Enter website URL for complete generation:</label>
+                    <input
+                      type="text"
+                      value={websiteGenUrl}
+                      onChange={(e) => setWebsiteGenUrl(e.target.value)}
+                      placeholder="https://example.com"
+                      disabled={websiteGenLoading}
+                      className="demo-input"
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={websiteGenLoading || !websiteGenUrl.trim()}
+                    className="demo-btn primary featured"
+                  >
+                    {websiteGenLoading ? (
+                      <>
+                        <span className="spinner"></span>
+                        Generating Website...
+                      </>
+                    ) : (
+                      '🚀 Generate Complete Website'
+                    )}
+                  </button>
+                </form>
+
+                {/* Task Progress */}
+                {websiteGenTask && !websiteGenResult && (
+                  <div className="task-progress featured-progress">
+                    <div className="progress-header">
+                      <span>🚀 Comprehensive Website Generation</span>
+                      <span className="task-id">ID: {websiteGenTask.task_id.slice(0, 8)}...</span>
+                    </div>
+                    <div className="progress-bar">
+                      <div className="progress-fill"></div>
+                    </div>
+                    <div className="progress-steps">
+                      <small>📸 Screenshot → 🧠 Content Analysis → 🔧 Technical Spec → 💻 Code Generation</small>
+                    </div>
+                  </div>
+                )}
+
+                {/* Comprehensive Results */}
+                {websiteGenResult && (
+                  <div className="result-panel featured-result">
+                    <div className="result-header">
+                      <span className={`result-status ${websiteGenResult.status}`}>
+                        {websiteGenResult.status === 'completed' ? '🎉 Complete Website Generated' : 'Failed'}
+                      </span>
+                      <div className="result-actions">
+                        {websiteGenResult.status === 'completed' && (
+                          <button 
+                            onClick={() => handleDownloadCode(websiteGenResult.task_id)}
+                            className="download-btn"
+                          >
+                            📥 Download Code
+                          </button>
+                        )}
+                        {websiteGenResult.total_processing_time_seconds && (
+                          <span className="processing-time">
+                            {websiteGenResult.total_processing_time_seconds.toFixed(2)}s total
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="comprehensive-results">
+                      
+                      {/* Screenshot Section */}
+                      {websiteGenResult.screenshot && (
+                        <div className="result-section">
+                          <h4 className="section-title">📸 Screenshot Capture</h4>
+                          <div className="section-content">
+                            <div className="screenshot-preview">
+                              <img 
+                                src={`data:image/png;base64,${websiteGenResult.screenshot.screenshot_data}`}
+                                alt="Website screenshot"
+                                className="mini-screenshot"
+                                title="Click to view full size"
+                              />
+                              <div className="screenshot-info">
+                                <div><strong>Title:</strong> {websiteGenResult.screenshot.page_title}</div>
+                                {websiteGenResult.screenshot.replay_url && (
+                                  <a href={websiteGenResult.screenshot.replay_url} target="_blank" rel="noopener noreferrer">
+                                    🎥 View Session Replay →
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Content Analysis Section */}
+                      {websiteGenResult.content_analysis && (
+                        <div className="result-section">
+                          <h4 className="section-title">🧠 Content Analysis</h4>
+                          <div className="section-content">
+                            {websiteGenResult.content_analysis.title && (
+                              <div className="analysis-item">
+                                <strong>Page Title:</strong> {websiteGenResult.content_analysis.title}
+                              </div>
+                            )}
+                            <div className="analysis-item">
+                              <strong>Content:</strong> {websiteGenResult.content_analysis.wordCount} words, 
+                              {websiteGenResult.content_analysis.headings?.length || 0} headings
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Technical Specification Section */}
+                      {websiteGenResult.technical_specification && (
+                        <div className="result-section">
+                          <h4 className="section-title">🔧 Technical Specification</h4>
+                          <div className="section-content">
+                            {websiteGenResult.technical_specification.specification && (
+                              <div className="tech-summary">
+                                <div className="tech-item">
+                                  <strong>Complexity:</strong> 
+                                  {websiteGenResult.technical_specification.specification.technical_requirements?.dependencies?.estimated_complexity || 'Analyzed'}
+                                </div>
+                                <div className="tech-item">
+                                  <strong>Framework:</strong> 
+                                  {websiteGenResult.technical_specification.specification.javascript_functionality?.framework_requirements?.detected_frameworks?.join(', ') || 'Vanilla JS'}
+                                </div>
+                                <div className="tech-item">
+                                  <strong>Layout:</strong> 
+                                  {websiteGenResult.technical_specification.specification.css_requirements?.layout_system?.primary || 'Standard'}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Generated Code Section */}
+                      {websiteGenResult.generated_code && (
+                        <div className="result-section">
+                          <h4 className="section-title">💻 Generated Code</h4>
+                          <div className="section-content">
+                            <div className="code-summary">
+                              <div className="code-files">
+                                {websiteGenResult.generated_code.files?.map((file, index) => (
+                                  <span key={index} className="file-tag">{file}</span>
+                                ))}
+                              </div>
+                              <div className="code-preview">
+                                <div className="code-stats">
+                                  <div>📄 HTML: {websiteGenResult.generated_code.html?.length || 0} chars</div>
+                                  <div>🎨 CSS: {websiteGenResult.generated_code.css?.length || 0} chars</div>
+                                  <div>⚡ JS: {websiteGenResult.generated_code.javascript?.length || 0} chars</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Error Display */}
+                      {websiteGenResult.error && (
+                        <div className="result-item error">
+                          <label>Error:</label>
+                          <div className="result-text">{websiteGenResult.error}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>  
           {/* Demo Controls */}
           <div className="demo-controls">
             <button onClick={handleClearAll} className="demo-btn secondary">
