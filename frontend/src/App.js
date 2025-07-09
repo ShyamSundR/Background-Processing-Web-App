@@ -1447,13 +1447,15 @@ function App() {
                         {websiteGenResult.status === 'completed' ? '🎉 Complete Website Generated' : 'Failed'}
                       </span>
                       <div className="result-actions">
-                        {websiteGenResult.status === 'completed' && (
-                          <button 
-                            onClick={() => handleDownloadCode(websiteGenResult.task_id)}
+                      {websiteGenResult.status === 'completed' && (
+                          <a 
+                            href={`${API_BASE}/download-code-zip/${websiteGenResult.task_id}`}
+                            download="generated-website.zip"
                             className="download-btn"
+                            style={{ textDecoration: 'none' }}
                           >
-                            📥 Download Code
-                          </button>
+                            📥 Download ZIP
+                          </a>
                         )}
                         {websiteGenResult.total_processing_time_seconds && (
                           <span className="processing-time">

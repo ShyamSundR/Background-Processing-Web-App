@@ -725,62 +725,83 @@ async def extract_page_content_activity(url: str) -> dict:
                 await page.wait_for_timeout(2000)
                 
                 # Extract comprehensive page content
+                # REPLACE WITH THIS:
                 content_data = await page.evaluate("""
                     () => {
-                        // Extract basic metadata
                         const title = document.title || '';
                         const description = document.querySelector('meta[name="description"]')?.content || '';
                         const keywords = document.querySelector('meta[name="keywords"]')?.content || '';
                         
-                        // Extract headings with hierarchy
-                        const headings = [];
-                        ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].forEach(tag => {
-                            document.querySelectorAll(tag).forEach(heading => {
-                                headings.push({
-                                    level: parseInt(tag.substring(1)),
-                                    text: heading.textContent.trim()
-                                });
-                            });
-                        });
+                        // Extract ALL text content in proper reading order
+                        const walker = document.createTreeWalker(
+                            document.body,
+                            NodeFilter.SHOW_TEXT,
+                            {
+                                acceptNode: function(node) {
+                                    const parent = node.parentElement;
+                                    if (!parent) return NodeFilter.FILTER_REJECT;
+                                    
+                                    const style = window.getComputedStyle(parent);
+                                    if (style.display === 'none' || style.visibility === 'hidden') {
+                                        return NodeFilter.FILTER_REJECT;
+                                    }
+                                    
+                                    const tagName = parent.tagName.toLowerCase();
+                                    if (['script', 'style', 'noscript', 'nav', 'header', 'footer'].includes(tagName)) {
+                                        return NodeFilter.FILTER_REJECT;
+                                    }
+                                    
+                                    return NodeFilter.FILTER_ACCEPT;
+                                }
+                            }
+                        );
                         
-                        // Extract main content (try to avoid nav, footer, ads)
-                        const contentSelectors = [
-                            'main', 'article', '[role="main"]', '.content', '#content',
-                            '.post', '.entry', '.article-body', '.story-body'
-                        ];
-                        
-                        let mainContent = '';
-                        for (const selector of contentSelectors) {
-                            const element = document.querySelector(selector);
-                            if (element) {
-                                mainContent = element.textContent.trim();
-                                break;
+                        // Collect text in reading order
+                        const textNodes = [];
+                        let node;
+                        while (node = walker.nextNode()) {
+                            const text = node.textContent.trim();
+                            if (text.length > 3) {
+                                textNodes.push(text);
                             }
                         }
                         
-                        // If no main content found, get body text but filter out common noise
-                        if (!mainContent) {
-                            // Remove script, style, nav, footer elements
-                            const bodyClone = document.body.cloneNode(true);
-                            ['script', 'style', 'nav', 'footer', 'header'].forEach(tag => {
-                                bodyClone.querySelectorAll(tag).forEach(el => el.remove());
-                            });
-                            mainContent = bodyClone.textContent.trim();
-                        }
+                        const fullContent = textNodes.join(' ');
                         
-                        // Extract links
+                        // Extract headings with more detail
+                        const headings = [];
+                        ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].forEach(tag => {
+                            document.querySelectorAll(tag).forEach((heading, index) => {
+                                const text = heading.textContent.trim();
+                                if (text) {
+                                    headings.push({
+                                        level: parseInt(tag.substring(1)),
+                                        text: text,
+                                        index: index
+                                    });
+                                }
+                            });
+                        });
+                        
+                        // Extract paragraphs separately for better content structure
+                        const paragraphs = Array.from(document.querySelectorAll('p'))
+                            .map(p => p.textContent.trim())
+                            .filter(text => text.length > 20)
+                            .slice(0, 10);
+                        
+                        // Extract links (keep your existing logic)
                         const links = Array.from(document.querySelectorAll('a[href]')).map(a => ({
                             text: a.textContent.trim(),
                             href: a.href
                         })).filter(link => link.text && link.text.length > 2).slice(0, 20);
                         
-                        // Extract images with alt text
+                        // Extract images (keep your existing logic)
                         const images = Array.from(document.querySelectorAll('img[alt]')).map(img => ({
                             alt: img.alt,
                             src: img.src
                         })).filter(img => img.alt).slice(0, 10);
                         
-                        // Get page structure info
+                        // Get page structure info (keep your existing logic)
                         const structure = {
                             hasNav: !!document.querySelector('nav'),
                             hasMain: !!document.querySelector('main'),
@@ -796,11 +817,12 @@ async def extract_page_content_activity(url: str) -> dict:
                             description,
                             keywords,
                             headings,
-                            mainContent: mainContent.substring(0, 10000), // Limit to 10k chars
+                            paragraphs,  // NEW: Separate paragraphs array
+                            mainContent: fullContent.substring(0, 15000), // Increased limit
                             links,
                             images,
                             structure,
-                            wordCount: mainContent.split(/\s+/).length,
+                            wordCount: fullContent.split(/\s+/).length,
                             url: window.location.href
                         };
                     }
@@ -2332,12 +2354,13 @@ async def generate_frontend_code_activity(tech_data: dict, content_data: dict) -
 
 # ADD THESE HELPER FUNCTIONS (for code generation)
 def generate_html_code(tech_data: dict, content_data: dict) -> str:
-    """Generate HTML code based on analyzed structure"""
+    """Generate improved HTML code with actual content"""
     
     metadata = tech_data.get("metadata", {})
     layout = tech_data.get("layoutAnalysis", {})
     title = content_data.get("title", "Generated Page")
     headings = content_data.get("headings", [])
+    paragraphs = content_data.get("paragraphs", [])
     main_content = content_data.get("mainContent", "")
     
     html = f"""<!DOCTYPE html>
@@ -2353,10 +2376,10 @@ def generate_html_code(tech_data: dict, content_data: dict) -> str:
     
     # Add header if detected
     if layout.get("hasHeader"):
-        html += """
+        html += f"""
     <header class="site-header">
         <div class="container">
-            <h1 class="site-title">""" + title + """</h1>
+            <h1 class="site-title">{title}</h1>
         </div>
     </header>"""
     
@@ -2368,32 +2391,58 @@ def generate_html_code(tech_data: dict, content_data: dict) -> str:
             <ul class="nav-menu">
                 <li><a href="#home">Home</a></li>
                 <li><a href="#about">About</a></li>
-                <li><a href="#services">Services</a></li>
+                <li><a href="#content">Content</a></li>
                 <li><a href="#contact">Contact</a></li>
             </ul>
         </div>
     </nav>"""
     
-    # Add main content
+    # Add main content with actual extracted content
     html += """
     <main class="main-content">
         <div class="container">"""
     
-    # Add headings and content
-    for heading in headings[:5]:  # Limit to first 5 headings
-        level = heading.get("level", 1)
-        text = heading.get("text", "")
-        if text:
-            html += f"""
-            <h{level}>{text}</h{level}>"""
+    # Add extracted headings and content strategically
+    content_sections = []
     
-    # Add main content in paragraphs
-    if main_content:
-        paragraphs = main_content.split('\n\n')[:3]  # First 3 paragraphs
-        for para in paragraphs:
-            if para.strip():
-                html += f"""
-            <p>{para.strip()}</p>"""
+    # Group content into sections (limit to 3-5 sections)
+    if headings:
+        # Take first 3-5 headings as section markers
+        main_headings = [h for h in headings if h['level'] <= 2][:4]
+        
+        for i, heading in enumerate(main_headings):
+            content_sections.append({
+                'title': heading['text'],
+                'content': paragraphs[i] if i < len(paragraphs) else f"Content related to {heading['text']}"
+            })
+    
+    # If no good headings, create sections from paragraphs
+    if not content_sections and paragraphs:
+        content_sections = [
+            {'title': 'Introduction', 'content': paragraphs[0] if len(paragraphs) > 0 else ''},
+            {'title': 'Main Content', 'content': paragraphs[1] if len(paragraphs) > 1 else ''},
+            {'title': 'Details', 'content': paragraphs[2] if len(paragraphs) > 2 else ''}
+        ]
+    
+    # Generate sections
+    for i, section in enumerate(content_sections[:4]):  # Limit to 4 sections
+        if section['title'] and section['content']:
+            level = 2 if i == 0 else 3
+            html += f"""
+            <section class="content-section">
+                <h{level}>{section['title']}</h{level}>
+                <p>{section['content'][:500]}{'...' if len(section['content']) > 500 else ''}</p>
+            </section>"""
+    
+    # Add a summary section if we have main content
+    if main_content and len(main_content) > 100:
+        # Create a brief summary from the beginning of the content
+        summary = main_content[:300] + "..." if len(main_content) > 300 else main_content
+        html += f"""
+            <section class="content-section">
+                <h3>Summary</h3>
+                <p>{summary}</p>
+            </section>"""
     
     html += """
         </div>
@@ -2401,10 +2450,10 @@ def generate_html_code(tech_data: dict, content_data: dict) -> str:
     
     # Add footer if detected
     if layout.get("hasFooter"):
-        html += """
+        html += f"""
     <footer class="site-footer">
         <div class="container">
-            <p>&copy; 2024 Generated Website. All rights reserved.</p>
+            <p>&copy; 2024 {title}. Generated from original content.</p>
         </div>
     </footer>"""
     
@@ -2505,6 +2554,35 @@ body {
 .main-content p {
     margin-bottom: 1rem;
     line-height: 1.7;
+}
+/* ADD these section styles to the CSS generation: */
+
+.content-section {
+    margin-bottom: 2rem;
+    padding: 1.5rem 0;
+    border-bottom: 1px solid #eee;
+}
+
+.content-section:last-child {
+    border-bottom: none;
+}
+
+.content-section h2 {
+    color: #2c3e50;
+    margin-bottom: 1rem;
+    font-size: 2rem;
+}
+
+.content-section h3 {
+    color: #34495e;
+    margin-bottom: 0.75rem;
+    font-size: 1.5rem;
+}
+
+.content-section p {
+    line-height: 1.8;
+    color: #555;
+    margin-bottom: 1rem;
 }
 
 /* Footer styles */

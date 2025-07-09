@@ -757,6 +757,58 @@ async def download_generated_code(task_id: str):
         print(f"❌ Error downloading code: {e}")
         raise HTTPException(status_code=404, detail="Task not found or failed")
 
+# ADD this alternative endpoint to main.py:
+@app.get("/download-code-zip/{task_id}")
+async def download_generated_code_zip(task_id: str):
+    """Download the generated code files as a single ZIP"""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal service unavailable")
+    
+    try:
+        handle = temporal_client.get_workflow_handle(task_id)
+        result = await asyncio.wait_for(handle.result(), timeout=0.1)
+        
+        if result["status"] != "completed":
+            raise HTTPException(status_code=400, detail="Task not completed yet")
+        
+        generated_code = result.get("generated_code")
+        if not generated_code:
+            raise HTTPException(status_code=404, detail="No generated code found")
+        
+        # Create ZIP in memory
+        import zipfile
+        import io
+        
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            files = {
+                "index.html": generated_code.get("html", ""),
+                "styles.css": generated_code.get("css", ""),
+                "script.js": generated_code.get("javascript", "")
+            }
+            
+            for filename, content in files.items():
+                if content and content.strip():
+                    zip_file.writestr(filename, content)
+        
+        zip_buffer.seek(0)
+        
+        # Return ZIP file
+        from fastapi.responses import StreamingResponse
+        
+        return StreamingResponse(
+            io.BytesIO(zip_buffer.read()),
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=generated-website.zip"}
+        )
+        
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=400, detail="Task still running")
+    except Exception as e:
+        print(f"❌ Error creating ZIP: {e}")
+        raise HTTPException(status_code=404, detail="Task not found or failed")
+
 
 @app.get("/health")
 async def health_check():
